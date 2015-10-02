@@ -37,8 +37,9 @@ func Open(dbfile string) (*DataStore, error) {
 }
 
 // Close the database
-func (d *DataStore) Close() {
-	d.Close()
+func (d *DataStore) Close() error {
+	db := (*bolt.DB)(d)
+	return db.Close()
 }
 
 func indices(name string) []byte {
@@ -158,20 +159,20 @@ func (t *Table) CreateIndex(index string, fields ...uint64) error {
 }
 
 func marshalKeyValue(keys []uint64, fields []interface{}) (key, value []byte, err error) {
-	vkey := make([]interface{}, len(keys))
-	vval := make([]interface{}, len(fields)-len(keys)) // only the entries not stored as keys
+	if len(keys) == 0 {
+		return
+	}
 
-	ki := 0
-	vi := 0
+	var vkey, vval []interface{}
+
+	kk, lk := 0, len(keys)
 
 	for fi, fv := range fields {
-		if len(keys) > 0 && fi == int(keys[0]) {
-			vkey[ki] = fv
-			ki += 1
-			keys = keys[1:]
+		if kk < lk && fi == int(keys[kk]) {
+			vkey = append(vkey, fv)
+			kk += 1
 		} else {
-			vval[vi] = fv
-			vi += 1
+			vval = append(vval, fv)
 		}
 	}
 
@@ -181,7 +182,10 @@ func marshalKeyValue(keys []uint64, fields []interface{}) (key, value []byte, er
 		}
 	}
 
-	value, err = typedbuffer.Encode(vval...)
+	if len(vval) > 0 {
+		value, err = typedbuffer.Encode(vval...)
+	}
+
 	return
 }
 
