@@ -443,15 +443,21 @@ func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, c
 
 			var ival interface{}
 
-			ik := 0
 			lk := len(keys)
 
 			for i := 0; i < lkey+lval; i++ {
-				if ik < lk && i == int(keys[ik]) {
-					ival = vkey[0]
-					vkey = vkey[1:]
-					ik += 1
-				} else {
+				is_key := false
+
+				// this can be optimized
+				for kk := 0; kk < lk; kk++ {
+					if i == int(keys[kk]) {
+						ival = vkey[0]
+						vkey = vkey[1:]
+						is_key = true
+					}
+				}
+
+				if !is_key {
 					ival = vval[0]
 					vval = vval[1:]
 				}

@@ -160,9 +160,9 @@ func Test_06_Scan_Index_1(t *testing.T) {
 		}
 
 		if key, ok := (*trec)[0].([]byte); !ok {
-			t.Error("key not a []byte", *trec)
+			t.Errorf("key not a []byte: %q", *trec)
 			return false
-		} else if string(key) <= prev {
+		} else if string(key) < prev {
 			t.Error("key", string(key), "prev", prev)
 			return false
 		} else {
@@ -191,9 +191,9 @@ func Test_07_Scan_Index_2(t *testing.T) {
 		}
 
 		if key, ok := (*trec)[1].(int64); !ok {
-			t.Errorf("key not a int64: %V", *trec)
+			t.Errorf("key not a int64: %q", *trec)
 			return false
-		} else if key <= prev {
+		} else if key < prev {
 			t.Error("key", key, "prev", prev)
 			return false
 		} else {
