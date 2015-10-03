@@ -112,6 +112,10 @@ func Test_04_Add_Records(t *testing.T) {
 	if _, err := table.Put(&TestRecord{"middle", 1, "not sure"}); err != nil {
 		t.Error("put:", err)
 	}
+
+	if _, err := table.Put(&TestRecord{"test__", 99, "2nd test"}); err != nil {
+		t.Error("put:", err)
+	}
 }
 
 func Test_05_Scan_Sequential(t *testing.T) {

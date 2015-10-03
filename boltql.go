@@ -163,15 +163,24 @@ func marshalKeyValue(keys []uint64, fields []interface{}) (key, value []byte, er
 		return
 	}
 
-	var vkey, vval []interface{}
+	vkey := make([]interface{}, len(keys))
+	vval := make([]interface{}, 0)
 
-	kk, lk := 0, len(keys)
+	lk := len(keys)
 
 	for fi, fv := range fields {
-		if kk < lk && fi == int(keys[kk]) {
-			vkey = append(vkey, fv)
-			kk += 1
-		} else {
+		is_key := false
+
+		// this can be optimized
+		for kk := 0; kk < lk; kk++ {
+			if fi == int(keys[kk]) {
+				vkey[kk] = fv
+				is_key = true
+				break
+			}
+		}
+
+		if !is_key {
 			vval = append(vval, fv)
 		}
 	}
