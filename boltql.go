@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/boltdb/bolt"
 	"github.com/gobs/typedbuffer"
@@ -55,13 +56,44 @@ func schema(name string) []byte {
 //
 type Table struct {
 	name    string
-	indices map[string][]uint64
+	indices map[string]iplist
 
 	d *DataStore
 }
 
 func (t *Table) String() string {
 	return fmt.Sprintf("Table{name: %q, indices: %v}", t.name, t.indices)
+}
+
+type indexpos struct {
+	field uint
+	pos   uint
+}
+
+type iplist []indexpos
+
+func makeIndexPos(fields []uint64) iplist {
+	ip := make(iplist, len(fields))
+
+	for i, f := range fields {
+		ip[i].field = uint(f)
+		ip[i].pos = uint(i)
+	}
+
+	sort.Sort(ip)
+	return ip
+}
+
+func (ip iplist) Len() int {
+	return len(ip)
+}
+
+func (ip iplist) Less(i, j int) bool {
+	return ip[i].field < ip[j].field
+}
+
+func (ip iplist) Swap(i, j int) {
+	ip[i], ip[j] = ip[j], ip[i]
 }
 
 //
@@ -84,7 +116,7 @@ func (d *DataStore) CreateTable(name string) (*Table, error) {
 	})
 
 	if err == nil {
-		return &Table{name: name, indices: map[string][]uint64{}, d: d}, nil
+		return &Table{name: name, indices: map[string]iplist{}, d: d}, nil
 	} else {
 		return nil, err
 	}
@@ -93,7 +125,7 @@ func (d *DataStore) CreateTable(name string) (*Table, error) {
 // Get table info
 func (d *DataStore) GetTable(name string) (*Table, error) {
 	db := (*bolt.DB)(d)
-	table := Table{name: name, indices: map[string][]uint64{}, d: d}
+	table := Table{name: name, indices: map[string]iplist{}, d: d}
 
 	err := db.View(func(tx *bolt.Tx) error {
 		if tx.Bucket([]byte(name)) == nil {
@@ -112,7 +144,7 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 				return SCHEMA_CORRUPTED
 			}
 
-			table.indices[name] = fields
+			table.indices[name] = makeIndexPos(fields)
 			return nil
 		})
 
@@ -152,13 +184,13 @@ func (t *Table) CreateIndex(index string, fields ...uint64) error {
 	})
 
 	if err == nil {
-		t.indices[index] = fields
+		t.indices[index] = makeIndexPos(fields)
 	}
 
 	return err
 }
 
-func marshalKeyValue(keys []uint64, fields []interface{}) (key, value []byte, err error) {
+func marshalKeyValue(keys iplist, fields []interface{}) (key, value []byte, err error) {
 	if len(keys) == 0 {
 		return
 	}
@@ -166,21 +198,13 @@ func marshalKeyValue(keys []uint64, fields []interface{}) (key, value []byte, er
 	vkey := make([]interface{}, len(keys))
 	vval := make([]interface{}, 0)
 
-	lk := len(keys)
+	kk, lk := 0, len(keys)
 
 	for fi, fv := range fields {
-		is_key := false
-
-		// this can be optimized
-		for kk := 0; kk < lk; kk++ {
-			if fi == int(keys[kk]) {
-				vkey[kk] = fv
-				is_key = true
-				break
-			}
-		}
-
-		if !is_key {
+		if kk < lk && uint(fi) == keys[kk].field {
+			vkey[keys[kk].pos] = fv
+			kk += 1
+		} else {
 			vval = append(vval, fv)
 		}
 	}
@@ -314,8 +338,8 @@ func (t *Table) Delete(key uint64) error {
 				}
 
 				vkey := make([]interface{}, len(keys))
-				for i, j := range keys {
-					vkey[i] = fields[j]
+				for _, ip := range keys {
+					vkey[ip.pos] = fields[ip.field]
 				}
 
 				dkey, err := typedbuffer.Encode(vkey...)
@@ -443,21 +467,13 @@ func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, c
 
 			var ival interface{}
 
-			lk := len(keys)
+			kk, lk := 0, len(keys)
 
 			for i := 0; i < lkey+lval; i++ {
-				is_key := false
-
-				// this can be optimized
-				for kk := 0; kk < lk; kk++ {
-					if i == int(keys[kk]) {
-						ival = vkey[0]
-						vkey = vkey[1:]
-						is_key = true
-					}
-				}
-
-				if !is_key {
+				if kk < lk && uint(i) == keys[kk].field {
+					ival = vkey[keys[kk].pos]
+					kk += 1
+				} else {
 					ival = vval[0]
 					vval = vval[1:]
 				}
