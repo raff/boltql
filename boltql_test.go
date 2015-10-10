@@ -196,6 +196,7 @@ func Test_07_Get(t *testing.T) {
 		TestRecord{nil, 99, nil, uint64(2)},
 		TestRecord{nil, 12, nil, uint64(3)},
 		TestRecord{nil, 1, nil, uint64(4)},
+		TestRecord{nil, 99, nil, uint64(5)},
 	}
 
 	for _, tr := range tests {
@@ -204,5 +205,47 @@ func Test_07_Get(t *testing.T) {
 		} else {
 			t.Log(rec)
 		}
+	}
+}
+
+func Test_08_Delete(t *testing.T) {
+	tests := []TestRecord{
+		TestRecord{nil, 42, nil, uint64(1)},
+		//TestRecord{nil, 99, nil, uint64(2)},
+		TestRecord{nil, 12, nil, uint64(3)},
+		//TestRecord{nil, 1, nil, uint64(4)},
+		//TestRecord{nil, 99, nil, uint64(5},
+	}
+
+	for _, tr := range tests {
+		if err := table.Delete(INDEX_2, &tr); err != nil {
+			t.Error("delete", tr, err)
+		} else {
+			t.Log("deleted", tr)
+		}
+	}
+}
+
+func Test_99_ForEach(t *testing.T) {
+	indices := []string{
+		"",
+		INDEX_1,
+		INDEX_2,
+	}
+
+	for _, index := range indices {
+		t.Log("content of index", index)
+
+		n := 0
+
+		if err := table.ForEach(index, func(k, v []byte) error {
+			t.Logf("  k:[% x], v:[% x]", k, v)
+			n += 1
+			return nil
+		}); err != nil {
+			t.Error("ForEach error", err)
+		}
+
+		t.Log("  total", n, "records")
 	}
 }
