@@ -68,7 +68,7 @@ func indices(name string) []byte {
 }
 
 func schema(name string) []byte {
-	return []byte(name + "_schema")
+	return []byte(name)
 }
 
 //
@@ -126,11 +126,7 @@ func (d *DataStore) CreateTable(name string) (*Table, error) {
 	db := (*bolt.DB)(d)
 
 	err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucket([]byte(name))
-		if err != nil {
-			return err
-		}
-		_, err = tx.CreateBucket(schema(name))
+		_, err := tx.CreateBucket(schema(name))
 		if err != nil {
 			return err
 		}
@@ -153,13 +149,9 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 	table := Table{name: name, indices: map[string]iplist{}, d: d}
 
 	err := db.View(func(tx *bolt.Tx) error {
-		if tx.Bucket([]byte(name)) == nil {
-			return NO_TABLE
-		}
-
 		b := tx.Bucket(schema(name))
 		if b == nil {
-			return NO_SCHEMA
+			return NO_TABLE
 		}
 
 		b.ForEach(func(k, v []byte) error {
