@@ -64,6 +64,7 @@ func (d *DataStore) Close() error {
 }
 
 func (d *DataStore) SetBulk(b bool) {
+	db := (*bolt.DB)(d)
 	db.NoSync = b
 }
 
