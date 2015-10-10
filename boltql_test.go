@@ -20,6 +20,12 @@ var (
 
 ///////////////////////////////////////////////////////////////
 
+//
+// Normally a "record" would be a "struct" with named fields
+// and the *FieldList() methods would convert the struct to a slice and back.
+//
+// But this works too :)
+//
 type TestRecord []interface{}
 
 func (r *TestRecord) ToFieldList() []interface{} {
@@ -91,60 +97,34 @@ func Test_03_CreateIndex(t *testing.T) {
 		t.Error("create index:", err)
 	}
 
-	if err := table.CreateIndex(INDEX_2, 1, 0); err != nil {
+	if err := table.CreateIndex(INDEX_2, 1, 3); err != nil {
 		t.Error("create index:", err)
 	}
 }
 
 func Test_04_Add_Records(t *testing.T) {
-	if _, err := table.Put(&TestRecord{"test__", 42, "some words"}); err != nil {
+	if _, err := table.Put(&TestRecord{"test__", 42, "some words", AUTOINCREMENT}); err != nil {
 		t.Error("put:", err)
 	}
 
-	if _, err := table.Put(&TestRecord{"alpha_", 99, "hello"}); err != nil {
+	if _, err := table.Put(&TestRecord{"alpha_", 99, "hello", AUTOINCREMENT}); err != nil {
 		t.Error("put:", err)
 	}
 
-	if _, err := table.Put(&TestRecord{"omega_", 12, "both"}); err != nil {
+	if _, err := table.Put(&TestRecord{"omega_", 12, "both", AUTOINCREMENT}); err != nil {
 		t.Error("put:", err)
 	}
 
-	if _, err := table.Put(&TestRecord{"middle", 1, "not sure"}); err != nil {
+	if _, err := table.Put(&TestRecord{"middle", 1, "not sure", AUTOINCREMENT}); err != nil {
 		t.Error("put:", err)
 	}
 
-	if _, err := table.Put(&TestRecord{"test__", 99, "2nd test"}); err != nil {
+	if _, err := table.Put(&TestRecord{"test__", 99, "2nd test", AUTOINCREMENT}); err != nil {
 		t.Error("put:", err)
 	}
 }
 
-func Test_05_Scan_Sequential(t *testing.T) {
-	var rec TestRecord
-	var prev uint64
-
-	if err := table.ScanSequential(true, &rec, func(row_id uint64, rec DataRecord, err error) bool {
-		trec := rec.(*TestRecord)
-
-		if err != nil {
-			t.Error("callback", err)
-		}
-
-		if row_id <= prev {
-			t.Error("row_id", row_id, "prev", prev)
-		}
-
-		if len(*trec) != 3 {
-			t.Error("len: expected 3, got", len(*trec))
-		}
-
-		prev = row_id
-		return true
-	}); err != nil {
-		t.Error("scan sequential:", err)
-	}
-}
-
-func Test_06_Scan_Index_1(t *testing.T) {
+func Test_05_Scan_Index_1(t *testing.T) {
 	var rec TestRecord
 	var prev string
 
@@ -155,9 +135,11 @@ func Test_06_Scan_Index_1(t *testing.T) {
 			t.Error("callback", err)
 		}
 
-		if len(*trec) != 3 {
-			t.Error("len: expected 3, got", len(*trec))
+		if len(*trec) != 4 {
+			t.Error("len: expected 4, got", len(*trec))
 		}
+
+		t.Logf("auto %v %v", (*trec)[1], (*trec)[3])
 
 		if key, ok := (*trec)[0].([]byte); !ok {
 			t.Errorf("key not a []byte: %q", *trec)
@@ -175,7 +157,7 @@ func Test_06_Scan_Index_1(t *testing.T) {
 	}
 }
 
-func Test_07_Scan_Index_2(t *testing.T) {
+func Test_06_Scan_Index_2(t *testing.T) {
 	var rec TestRecord
 	var prev int64
 
@@ -186,8 +168,8 @@ func Test_07_Scan_Index_2(t *testing.T) {
 			t.Error("callback", err)
 		}
 
-		if len(*trec) != 3 {
-			t.Error("len: expected 3, got", len(*trec))
+		if len(*trec) != 4 {
+			t.Error("len: expected 4, got", len(*trec))
 		}
 
 		if key, ok := (*trec)[1].(int64); !ok {
@@ -203,5 +185,24 @@ func Test_07_Scan_Index_2(t *testing.T) {
 		return true
 	}); err != nil {
 		t.Error("scan index:", err)
+	}
+}
+
+func Test_07_Get(t *testing.T) {
+	var rec TestRecord
+
+	tests := []TestRecord{
+		TestRecord{nil, 42, nil, uint64(1)},
+		TestRecord{nil, 99, nil, uint64(2)},
+		TestRecord{nil, 12, nil, uint64(3)},
+		TestRecord{nil, 1, nil, uint64(4)},
+	}
+
+	for _, tr := range tests {
+		if err := table.Get(INDEX_2, &tr, &rec); err != nil {
+			t.Error("expected", tr, err)
+		} else {
+			t.Log(rec)
+		}
 	}
 }

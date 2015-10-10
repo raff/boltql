@@ -18,16 +18,34 @@ var (
 	SCHEMA_CORRUPTED = errors.New("schema corrupted")
 	NO_KEY           = errors.New("key not found")
 	BAD_VALUES       = errors.New("bad values")
+
+	// this is just a marker for auto-increment fields
+	AUTOINCREMENT = &struct{}{}
 )
 
+//
+// A DataStore is the main interface to a BoltDB database
+//
 type DataStore bolt.DB
 
+//
+// A DataRecord is the interface for elements that can be stored in a table.
+// A DataRecord needs to implement two methods:
+//
+// ToFieldList() should convert the record fields into a list of values, preserving their order
+// (i.e. the same fields should always be in the same position)
+//
+// FromFieldList() should fill the record with values from the input list. The order of values
+// is the same as what was returned from ToFieldList()
+//
 type DataRecord interface {
 	ToFieldList() []interface{}
 	FromFieldList([]interface{})
 }
 
+//
 // Open the database (create if it doesn't exist)
+//
 func Open(dbfile string) (*DataStore, error) {
 	db, err := bolt.Open(dbfile, 0666, nil)
 	if err != nil {
@@ -37,7 +55,9 @@ func Open(dbfile string) (*DataStore, error) {
 	return (*DataStore)(db), nil
 }
 
+//
 // Close the database
+//
 func (d *DataStore) Close() error {
 	db := (*bolt.DB)(d)
 	return db.Close()
@@ -61,6 +81,9 @@ type Table struct {
 	d *DataStore
 }
 
+//
+// Implement the Stringer interface
+//
 func (t *Table) String() string {
 	return fmt.Sprintf("Table{name: %q, indices: %v}", t.name, t.indices)
 }
@@ -122,7 +145,9 @@ func (d *DataStore) CreateTable(name string) (*Table, error) {
 	}
 }
 
-// Get table info
+//
+// Get existing Table
+//
 func (d *DataStore) GetTable(name string) (*Table, error) {
 	db := (*bolt.DB)(d)
 	table := Table{name: name, indices: map[string]iplist{}, d: d}
@@ -158,6 +183,11 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 	}
 }
 
+//
+// Create an index given the name (index) and a list of field positions
+// used to create a composite key. The field position should corrispond
+// to the entries in DataRecord ToFieldList() and FromFieldList()
+//
 func (t *Table) CreateIndex(index string, fields ...uint64) error {
 	db := (*bolt.DB)(t.d)
 
@@ -222,13 +252,51 @@ func marshalKeyValue(keys iplist, fields []interface{}) (key, value []byte, err 
 	return
 }
 
-// Add a record to the table (using sequential record number)
+func unmarshalKeyValue(keys iplist, k, v []byte) ([]interface{}, error) {
+	vkey, err := typedbuffer.DecodeAll(k)
+	if err != nil {
+		return nil, err
+	}
+
+	vval, err := typedbuffer.DecodeAll(v)
+	if err != nil {
+		return nil, err
+	}
+
+	lkey := len(vkey)
+	lval := len(vval)
+
+	fields := []interface{}{}
+
+	var ival interface{}
+
+	kk, lk := 0, len(keys)
+
+	for i := 0; i < lkey+lval; i++ {
+		if kk < lk && uint(i) == keys[kk].field {
+			ival = vkey[keys[kk].pos]
+			kk += 1
+		} else {
+			ival = vval[0]
+			vval = vval[1:]
+		}
+
+		fields = append(fields, ival)
+	}
+
+	return fields, nil
+}
+
+//
+// Add a record to the table (using sequential record number).
+// Also add/update records in all indices.
+//
 func (t *Table) Put(rec DataRecord) (uint64, error) {
 	db := (*bolt.DB)(t.d)
 
 	var key uint64
 
-	err := db.Update(func(tx *bolt.Tx) error {
+	err := db.Update(func(tx *bolt.Tx) (err error) {
 		b := tx.Bucket([]byte(t.name))
 		if b == nil {
 			return NO_TABLE
@@ -236,18 +304,13 @@ func (t *Table) Put(rec DataRecord) (uint64, error) {
 
 		fields := rec.ToFieldList()
 
-		data, err := typedbuffer.Encode(fields...)
-		if err != nil {
-			return err
-		}
-
-		key, err = b.NextSequence()
-		if err != nil {
-			return err
-		}
-
-		if err = b.Put(typedbuffer.EncodeUint64(key), data); err != nil {
-			return err
+		for i := range fields {
+			if fields[i] == AUTOINCREMENT {
+				fields[i], err = b.NextSequence()
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		for index, keys := range t.indices {
@@ -276,34 +339,53 @@ func (t *Table) Put(rec DataRecord) (uint64, error) {
 	return key, err
 }
 
-// Get a record from the table (using sequential record number)
-func (t *Table) Get(key uint64, record DataRecord) error {
+//
+// Get a record from the table, given the index and the key
+//
+func (t *Table) Get(index string, key, res DataRecord) error {
 	db := (*bolt.DB)(t.d)
 
 	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(t.name))
+		b := tx.Bucket(indices(index))
 		if b == nil {
-			return NO_TABLE
+			return NO_INDEX
 		}
 
-		data := b.Get(typedbuffer.EncodeUint64(key))
-		if data == nil {
-			return NO_KEY
-		}
+		c := b.Cursor()
 
-		fields, err := typedbuffer.DecodeAll(data)
+		keys := t.indices[index]
+
+		sk, _, err := marshalKeyValue(keys, key.ToFieldList())
 		if err != nil {
 			return err
 		}
 
-		record.FromFieldList(fields)
+		if sk == nil {
+			fmt.Println("marshal returned no key")
+			return NO_KEY
+		}
+
+		resk, resv := c.Seek(sk)
+		if !bytes.Equal(sk, resk) {
+			fmt.Printf("expected % x got % x\n", sk, resk)
+			return NO_KEY
+		}
+
+		fields, err := unmarshalKeyValue(keys, resk, resv)
+		if err != nil {
+			return err
+		}
+
+		res.FromFieldList(fields)
 		return nil
 	})
 
 	return err
 }
 
+//
 // Delete a record from the table (using sequential record number)
+//
 func (t *Table) Delete(key uint64) error {
 	db := (*bolt.DB)(t.d)
 
@@ -359,48 +441,10 @@ func (t *Table) Delete(key uint64) error {
 	return err
 }
 
-// Get all records sorted by sequential id (ascending or descending)
-// Call user function with key (position) and record content
-func (t *Table) ScanSequential(ascending bool, res DataRecord, callback func(uint64, DataRecord, error) bool) error {
-	db := (*bolt.DB)(t.d)
-
-	return db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(t.name))
-		if b == nil {
-			return NO_TABLE
-		}
-
-		c := b.Cursor()
-
-		// ascending
-		first := c.First
-		next := c.Next
-
-		// descending
-		if !ascending {
-			first = c.Last
-			next = c.Prev
-		}
-
-		for k, v := first(); k != nil; k, v = next() {
-			pos, _, _ := typedbuffer.Decode(k)
-
-			fields, err := typedbuffer.DecodeAll(v)
-			if err == nil {
-				res.FromFieldList(fields)
-			}
-
-			if !callback(pos.(uint64), res, err) {
-				break
-			}
-		}
-
-		return nil
-	})
-}
-
+//
 // Get all records sorted by index (ascending or descending)
-// Call user function with record content
+// Call user function with record content or error
+//
 func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, callback func(DataRecord, error) bool) error {
 	db := (*bolt.DB)(t.d)
 
@@ -450,35 +494,9 @@ func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, c
 		}
 
 		for ; k != nil; k, v = next() {
-			vkey, err := typedbuffer.DecodeAll(k)
+			fields, err := unmarshalKeyValue(keys, k, v)
 			if err != nil {
 				return err
-			}
-
-			vval, err := typedbuffer.DecodeAll(v)
-			if err != nil {
-				return err
-			}
-
-			lkey := len(vkey)
-			lval := len(vval)
-
-			fields := []interface{}{}
-
-			var ival interface{}
-
-			kk, lk := 0, len(keys)
-
-			for i := 0; i < lkey+lval; i++ {
-				if kk < lk && uint(i) == keys[kk].field {
-					ival = vkey[keys[kk].pos]
-					kk += 1
-				} else {
-					ival = vval[0]
-					vval = vval[1:]
-				}
-
-				fields = append(fields, ival)
 			}
 
 			res.FromFieldList(fields)
