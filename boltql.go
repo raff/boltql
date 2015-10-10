@@ -353,13 +353,11 @@ func (t *Table) Get(index string, key, res DataRecord) error {
 		}
 
 		if sk == nil {
-			fmt.Println("marshal returned no key")
 			return NO_KEY
 		}
 
 		resk, resv := c.Seek(sk)
 		if !bytes.Equal(sk, resk) {
-			fmt.Printf("expected % x got % x\n", sk, resk)
 			return NO_KEY
 		}
 
@@ -378,38 +376,54 @@ func (t *Table) Get(index string, key, res DataRecord) error {
 //
 // Delete a record from the table (using sequential record number)
 //
-func (t *Table) Delete(key uint64) error {
+func (t *Table) Delete(index string, key DataRecord) error {
 	db := (*bolt.DB)(t.d)
 
 	err := db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(t.name))
+		b := tx.Bucket(indices(index))
 		if b == nil {
-			return NO_TABLE
+			return NO_INDEX
 		}
 
-		enkey := typedbuffer.EncodeUint64(key)
+		keys := t.indices[index]
+
+		sk, _, err := marshalKeyValue(keys, key.ToFieldList())
+		if err != nil {
+			return err
+		}
+
+		if sk == nil {
+			return NO_KEY
+		}
 
 		c := b.Cursor()
-		k, v := c.Seek(enkey)
+		k, v := c.Seek(sk)
 
 		// Seek will return the next key if there is no match
 		// so make sure we check we got the right record
 
-		if bytes.Equal(enkey, k) {
+		if bytes.Equal(sk, k) {
 			if err := c.Delete(); err != nil {
 				return err
 			}
 
-			fields, err := typedbuffer.DecodeAll(v)
+			fields, err := unmarshalKeyValue(keys, k, v)
 			if err != nil {
 				return err
 			}
 
-			for index, keys := range t.indices {
-				b := tx.Bucket(indices(index))
+			for i, keys := range t.indices {
+				if i == index {
+					// already done
+					continue
+				}
+
+				b := tx.Bucket(indices(i))
 				if b == nil {
 					continue
 				}
+
+				// could use marshalKeyValue() instead
 
 				vkey := make([]interface{}, len(keys))
 				for _, ip := range keys {
@@ -502,11 +516,15 @@ func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, c
 	})
 }
 
-func (t *Table) ForEach(index string, callback func(k, b []byte) error) error {
+func (t *Table) ForEach(index string, callback func(k, v []byte) error) error {
 	db := (*bolt.DB)(t.d)
 
 	return db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(indices(index))
+		b := tx.Bucket([]byte(t.name))
+		if len(index) > 0 {
+			b = tx.Bucket(indices(index))
+		}
+
 		if b == nil {
 			return NO_INDEX
 		}
