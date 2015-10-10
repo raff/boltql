@@ -63,6 +63,10 @@ func (d *DataStore) Close() error {
 	return db.Close()
 }
 
+func (d *DataStore) SetBulk(b bool) {
+	db.NoSync = b
+}
+
 func indices(name string) []byte {
 	return []byte(name + "_idx")
 }
