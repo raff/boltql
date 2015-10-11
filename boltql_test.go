@@ -128,7 +128,7 @@ func Test_05_Scan_Index_1(t *testing.T) {
 	var rec TestRecord
 	var prev string
 
-	if err := table.ScanIndex(INDEX_1, true, nil, &rec, func(rec DataRecord, err error) bool {
+	if err := table.Scan(INDEX_1, true, nil, &rec, func(rec DataRecord, err error) bool {
 		trec := rec.(*TestRecord)
 
 		if err != nil {
@@ -161,7 +161,7 @@ func Test_06_Scan_Index_2(t *testing.T) {
 	var rec TestRecord
 	var prev int64
 
-	if err := table.ScanIndex(INDEX_2, true, nil, &rec, func(rec DataRecord, err error) bool {
+	if err := table.Scan(INDEX_2, true, nil, &rec, func(rec DataRecord, err error) bool {
 		trec := rec.(*TestRecord)
 
 		if err != nil {

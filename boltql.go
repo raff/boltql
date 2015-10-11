@@ -285,8 +285,8 @@ func unmarshalKeyValue(keys iplist, k, v []byte) ([]interface{}, error) {
 }
 
 //
-// Add a record to the table (using sequential record number).
-// Also add/update records in all indices.
+// Add a record to the table, updating all indices.
+// If a record with the same key exists, it's updated.
 //
 func (t *Table) Put(rec DataRecord) (uint64, error) {
 	db := (*bolt.DB)(t.d)
@@ -379,7 +379,7 @@ func (t *Table) Get(index string, key, res DataRecord) error {
 }
 
 //
-// Delete a record from the table (using sequential record number)
+// Delete a record from the table, given the index and the key
 //
 func (t *Table) Delete(index string, key DataRecord) error {
 	db := (*bolt.DB)(t.d)
@@ -453,10 +453,10 @@ func (t *Table) Delete(index string, key DataRecord) error {
 }
 
 //
-// Get all records sorted by index (ascending or descending)
+// Get all records sorted by index keys (ascending or descending)
 // Call user function with record content or error
 //
-func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, callback func(DataRecord, error) bool) error {
+func (t *Table) Scan(index string, ascending bool, start, res DataRecord, callback func(DataRecord, error) bool) error {
 	db := (*bolt.DB)(t.d)
 
 	return db.View(func(tx *bolt.Tx) error {
@@ -521,6 +521,9 @@ func (t *Table) ScanIndex(index string, ascending bool, start, res DataRecord, c
 	})
 }
 
+//
+// Scan through all records in an index. Calls specified callback with key and value (as []byte)
+//
 func (t *Table) ForEach(index string, callback func(k, v []byte) error) error {
 	db := (*bolt.DB)(t.d)
 
