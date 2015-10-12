@@ -81,7 +81,7 @@ func schema(name string) []byte {
 //
 type Table struct {
 	name    string
-	indices map[string]iplist
+	indices map[string]indexinfo
 
 	d *DataStore
 }
@@ -91,6 +91,11 @@ type Table struct {
 //
 func (t *Table) String() string {
 	return fmt.Sprintf("Table{name: %q, indices: %v}", t.name, t.indices)
+}
+
+type indexinfo struct {
+    nilFirst bool
+    iplist []indexpos
 }
 
 type indexpos struct {
@@ -140,7 +145,7 @@ func (d *DataStore) CreateTable(name string) (*Table, error) {
 	})
 
 	if err == nil {
-		return &Table{name: name, indices: map[string]iplist{}, d: d}, nil
+		return &Table{name: name, indices: map[string]indexinfo{}, d: d}, nil
 	} else {
 		return nil, err
 	}
@@ -151,7 +156,7 @@ func (d *DataStore) CreateTable(name string) (*Table, error) {
 //
 func (d *DataStore) GetTable(name string) (*Table, error) {
 	db := (*bolt.DB)(d)
-	table := Table{name: name, indices: map[string]iplist{}, d: d}
+	table := Table{name: name, indices: map[string]indexinfo{}, d: d}
 
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(schema(name))
@@ -161,12 +166,21 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 
 		b.ForEach(func(k, v []byte) error {
 			name := string(k)
-			fields, err := typedbuffer.DecodeUintArray(v)
+
+                        nilFirst, rest, err := typedbuffer.Decode(v)
+			if err != nil {
+				return SCHEMA_CORRUPTED
+			}
+			fields, err := typedbuffer.DecodeUintArray(rest)
 			if err != nil {
 				return SCHEMA_CORRUPTED
 			}
 
-			table.indices[name] = makeIndexPos(fields)
+			table.indices[name] = indexinfo{
+                            nilFirst: nilFirst.(bool),
+                            iplist: makeIndexPos(fields),
+                        }
+
 			return nil
 		})
 
@@ -182,10 +196,13 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 
 //
 // Create an index given the name (index) and a list of field positions
-// used to create a composite key. The field position should corrispond
-// to the entries in DataRecord ToFieldList() and FromFieldList()
+// used to create a composite key.
 //
-func (t *Table) CreateIndex(index string, fields ...uint64) error {
+// nilFirst specifies if nil values should sort first (lowest possible value) or last (highest possible value)
+//
+// The field position should corrispond to the entries in DataRecord ToFieldList() and FromFieldList()
+//
+func (t *Table) CreateIndex(index string, nilFirst bool, fields ...uint64) error {
 	db := (*bolt.DB)(t.d)
 
 	err := db.Update(func(tx *bolt.Tx) error {
@@ -194,7 +211,11 @@ func (t *Table) CreateIndex(index string, fields ...uint64) error {
 			return NO_TABLE
 		}
 
-		enc, err := typedbuffer.Encode(fields)
+                enc, err := typedbuffer.Encode(nilFirst)
+		if err != nil {
+			return BAD_VALUES
+		}
+		enc, err = typedbuffer.Encode(fields)
 		if err != nil {
 			return BAD_VALUES
 		}
@@ -211,25 +232,28 @@ func (t *Table) CreateIndex(index string, fields ...uint64) error {
 	})
 
 	if err == nil {
-		t.indices[index] = makeIndexPos(fields)
+                t.indices[index] = indexinfo{
+                            nilFirst: nilFirst,
+                            iplist: makeIndexPos(fields),
+                        }
 	}
 
 	return err
 }
 
-func marshalKeyValue(keys iplist, fields []interface{}) (key, value []byte, err error) {
-	if len(keys) == 0 {
+func (info indexinfo) marshalKeyValue(fields []interface{}) (key, value []byte, err error) {
+	if len(info.iplist) == 0 {
 		return
 	}
 
-	vkey := make([]interface{}, len(keys))
+	vkey := make([]interface{}, len(info.iplist))
 	vval := make([]interface{}, 0)
 
-	kk, lk := 0, len(keys)
+	kk, lk := 0, len(info.iplist)
 
 	for fi, fv := range fields {
-		if kk < lk && uint(fi) == keys[kk].field {
-			vkey[keys[kk].pos] = fv
+		if kk < lk && uint(fi) == info.iplist[kk].field {
+			vkey[info.iplist[kk].pos] = fv
 			kk += 1
 		} else {
 			vval = append(vval, fv)
@@ -237,25 +261,25 @@ func marshalKeyValue(keys iplist, fields []interface{}) (key, value []byte, err 
 	}
 
 	if len(vkey) > 0 {
-		if key, err = typedbuffer.Encode(vkey...); err != nil {
+		if key, err = typedbuffer.EncodeNils(info.nilFirst, vkey...); err != nil {
 			return
 		}
 	}
 
 	if len(vval) > 0 {
-		value, err = typedbuffer.Encode(vval...)
+		value, err = typedbuffer.EncodeNils(info.nilFirst, vval...)
 	}
 
 	return
 }
 
-func unmarshalKeyValue(keys iplist, k, v []byte) ([]interface{}, error) {
-	vkey, err := typedbuffer.DecodeAll(k)
+func (info indexinfo) unmarshalKeyValue(k, v []byte) ([]interface{}, error) {
+	vkey, err := typedbuffer.DecodeAll(false, k)
 	if err != nil {
 		return nil, err
 	}
 
-	vval, err := typedbuffer.DecodeAll(v)
+	vval, err := typedbuffer.DecodeAll(false, v)
 	if err != nil {
 		return nil, err
 	}
@@ -267,11 +291,11 @@ func unmarshalKeyValue(keys iplist, k, v []byte) ([]interface{}, error) {
 
 	var ival interface{}
 
-	kk, lk := 0, len(keys)
+	kk, lk := 0, len(info.iplist)
 
 	for i := 0; i < lkey+lval; i++ {
-		if kk < lk && uint(i) == keys[kk].field {
-			ival = vkey[keys[kk].pos]
+		if kk < lk && uint(i) == info.iplist[kk].field {
+			ival = vkey[info.iplist[kk].pos]
 			kk += 1
 		} else {
 			ival = vval[0]
@@ -310,13 +334,13 @@ func (t *Table) Put(rec DataRecord) (uint64, error) {
 			}
 		}
 
-		for index, keys := range t.indices {
+		for index, info := range t.indices {
 			ib := tx.Bucket(indices(index))
 			if ib == nil {
 				return NO_TABLE
 			}
 
-			key, val, err := marshalKeyValue(keys, fields)
+			key, val, err := info.marshalKeyValue(fields)
 			if err != nil {
 				return err
 			}
@@ -350,9 +374,9 @@ func (t *Table) Get(index string, key, res DataRecord) error {
 
 		c := b.Cursor()
 
-		keys := t.indices[index]
+		info := t.indices[index]
 
-		sk, _, err := marshalKeyValue(keys, key.ToFieldList())
+		sk, _, err := info.marshalKeyValue(key.ToFieldList())
 		if err != nil {
 			return err
 		}
@@ -366,7 +390,7 @@ func (t *Table) Get(index string, key, res DataRecord) error {
 			return NO_KEY
 		}
 
-		fields, err := unmarshalKeyValue(keys, resk, resv)
+		fields, err := info.unmarshalKeyValue(resk, resv)
 		if err != nil {
 			return err
 		}
@@ -390,9 +414,9 @@ func (t *Table) Delete(index string, key DataRecord) error {
 			return NO_INDEX
 		}
 
-		keys := t.indices[index]
+		info := t.indices[index]
 
-		sk, _, err := marshalKeyValue(keys, key.ToFieldList())
+		sk, _, err := info.marshalKeyValue(key.ToFieldList())
 		if err != nil {
 			return err
 		}
@@ -412,12 +436,12 @@ func (t *Table) Delete(index string, key DataRecord) error {
 				return err
 			}
 
-			fields, err := unmarshalKeyValue(keys, k, v)
+			fields, err := info.unmarshalKeyValue(k, v)
 			if err != nil {
 				return err
 			}
 
-			for i, keys := range t.indices {
+			for i, info := range t.indices {
 				if i == index {
 					// already done
 					continue
@@ -430,8 +454,8 @@ func (t *Table) Delete(index string, key DataRecord) error {
 
 				// could use marshalKeyValue() instead
 
-				vkey := make([]interface{}, len(keys))
-				for _, ip := range keys {
+				vkey := make([]interface{}, len(info.iplist))
+				for _, ip := range info.iplist {
 					vkey[ip.pos] = fields[ip.field]
 				}
 
@@ -467,12 +491,12 @@ func (t *Table) Scan(index string, ascending bool, start, res DataRecord, callba
 
 		c := b.Cursor()
 
-		keys := t.indices[index]
+		info := t.indices[index]
 
 		var k, v []byte
 
 		if start != nil {
-			key, _, err := marshalKeyValue(keys, start.ToFieldList())
+			key, _, err := info.marshalKeyValue(start.ToFieldList())
 			if err != nil {
 				return err
 			}
@@ -505,7 +529,7 @@ func (t *Table) Scan(index string, ascending bool, start, res DataRecord, callba
 		}
 
 		for ; k != nil; k, v = next() {
-			fields, err := unmarshalKeyValue(keys, k, v)
+			fields, err := info.unmarshalKeyValue(k, v)
 			if err != nil {
 				return err
 			}

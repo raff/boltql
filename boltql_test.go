@@ -93,11 +93,11 @@ func Test_02_GetTable(t *testing.T) {
 }
 
 func Test_03_CreateIndex(t *testing.T) {
-	if err := table.CreateIndex(INDEX_1, 0, 1); err != nil {
+	if err := table.CreateIndex(INDEX_1, true, 0, 1); err != nil {
 		t.Error("create index:", err)
 	}
 
-	if err := table.CreateIndex(INDEX_2, 1, 3); err != nil {
+	if err := table.CreateIndex(INDEX_2, true, 1, 3); err != nil {
 		t.Error("create index:", err)
 	}
 }
