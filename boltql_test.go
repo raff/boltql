@@ -80,7 +80,17 @@ func Test_01_CreateTable(t *testing.T) {
 	}
 }
 
-func Test_02_GetTable(t *testing.T) {
+func Test_02_CreateIndex(t *testing.T) {
+	if err := table.CreateIndex(INDEX_1, true, 0, 1); err != nil {
+		t.Error("create index:", err)
+	}
+
+	if err := table.CreateIndex(INDEX_2, true, 1, 3); err != nil {
+		t.Error("create index:", err)
+	}
+}
+
+func Test_03_GetTable(t *testing.T) {
 	tbl, err := db.GetTable(TABLE_NAME)
 	if err != nil {
 		t.Error("get table:", err)
@@ -92,15 +102,6 @@ func Test_02_GetTable(t *testing.T) {
 	table = tbl
 }
 
-func Test_03_CreateIndex(t *testing.T) {
-	if err := table.CreateIndex(INDEX_1, true, 0, 1); err != nil {
-		t.Error("create index:", err)
-	}
-
-	if err := table.CreateIndex(INDEX_2, true, 1, 3); err != nil {
-		t.Error("create index:", err)
-	}
-}
 
 func Test_04_Add_Records(t *testing.T) {
 	if _, err := table.Put(&TestRecord{"test__", 42, "some words", AUTOINCREMENT}); err != nil {
