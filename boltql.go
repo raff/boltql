@@ -242,6 +242,12 @@ func (t *Table) CreateIndex(index string, nilFirst bool, fields ...uint64) error
 	return err
 }
 
+//
+// marshal an array of fields into a key and value pair of encoded values
+//
+// the key is a composed key of the fields described in info.iplist (field number and order)
+// the value is a collection of the remaning fields
+//
 func (info indexinfo) marshalKeyValue(fields []interface{}) (key, value []byte, err error) {
 	if len(info.iplist) == 0 {
 		return
@@ -274,6 +280,9 @@ func (info indexinfo) marshalKeyValue(fields []interface{}) (key, value []byte, 
 	return
 }
 
+//
+// unmarshal key, value into a list of decoded fields
+//
 func (info indexinfo) unmarshalKeyValue(k, v []byte) ([]interface{}, error) {
 	vkey, err := typedbuffer.DecodeAll(false, k)
 	if err != nil {
@@ -547,7 +556,7 @@ func (t *Table) Scan(index string, ascending bool, start, res DataRecord, callba
 }
 
 //
-// Scan through all records in an index. Calls specified callback with key and value (as []byte)
+// Scan through all records in an index. Calls specified callback with key and value (as []byte, not decoded)
 //
 func (t *Table) ForEach(index string, callback func(k, v []byte) error) error {
 	db := (*bolt.DB)(t.d)
