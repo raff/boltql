@@ -94,8 +94,8 @@ func (t *Table) String() string {
 }
 
 type indexinfo struct {
-    nilFirst bool
-    iplist []indexpos
+	nilFirst bool
+	iplist   []indexpos
 }
 
 type indexpos struct {
@@ -167,7 +167,7 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 		b.ForEach(func(k, v []byte) error {
 			name := string(k)
 
-                        nilFirst, rest, err := typedbuffer.Decode(v)
+			nilFirst, rest, err := typedbuffer.Decode(v)
 			if err != nil {
 				return SCHEMA_CORRUPTED
 			}
@@ -177,9 +177,9 @@ func (d *DataStore) GetTable(name string) (*Table, error) {
 			}
 
 			table.indices[name] = indexinfo{
-                            nilFirst: nilFirst.(bool),
-                            iplist: makeIndexPos(fields),
-                        }
+				nilFirst: nilFirst.(bool),
+				iplist:   makeIndexPos(fields),
+			}
 
 			return nil
 		})
@@ -211,15 +211,16 @@ func (t *Table) CreateIndex(index string, nilFirst bool, fields ...uint64) error
 			return NO_TABLE
 		}
 
-                enc, err := typedbuffer.Encode(nilFirst)
+		b1, err := typedbuffer.Encode(nilFirst)
 		if err != nil {
 			return BAD_VALUES
 		}
-		enc, err = typedbuffer.Encode(fields)
+		b2, err := typedbuffer.Encode(fields)
 		if err != nil {
 			return BAD_VALUES
 		}
 
+		enc := append(b1, b2...)
 		if err := b.Put([]byte(index), enc); err != nil {
 			return err
 		}
@@ -232,10 +233,10 @@ func (t *Table) CreateIndex(index string, nilFirst bool, fields ...uint64) error
 	})
 
 	if err == nil {
-                t.indices[index] = indexinfo{
-                            nilFirst: nilFirst,
-                            iplist: makeIndexPos(fields),
-                        }
+		t.indices[index] = indexinfo{
+			nilFirst: nilFirst,
+			iplist:   makeIndexPos(fields),
+		}
 	}
 
 	return err
