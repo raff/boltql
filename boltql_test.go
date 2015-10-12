@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/gobs/typedbuffer"
 )
 
 const (
@@ -238,7 +240,7 @@ func Test_08_Delete(t *testing.T) {
 
 func Test_99_ForEach(t *testing.T) {
 	indices := []string{
-		"",
+		"", // note that this contains the table description (info about indices)
 		INDEX_1,
 		INDEX_2,
 	}
@@ -249,7 +251,15 @@ func Test_99_ForEach(t *testing.T) {
 		n := 0
 
 		if err := getTable(t).ForEach(index, func(k, v []byte) error {
-			t.Logf("  k:[% x], v:[% x]", k, v)
+			kk, _ := typedbuffer.DecodeAll(true, k)
+			vv, _ := typedbuffer.DecodeAll(true, v)
+
+			if index == "" {
+				// the key should be the index name, not encoded
+				kk = []interface{}{string(k)}
+			}
+
+			t.Logf("  k:%v, v:%v", kk, vv)
 			n += 1
 			return nil
 		}); err != nil {
