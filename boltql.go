@@ -413,6 +413,94 @@ func (t *Table) Get(index string, key, res DataRecord) error {
 }
 
 //
+// Update a record from the table, given the index and the key
+//
+/*
+func (t *Table) Update(index string, key, value DataRecord) error {
+	db := (*bolt.DB)(t.d)
+
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(indices(index))
+		if b == nil {
+			return NO_INDEX
+		}
+
+		info := t.indices[index]
+
+		sk, _, err := info.marshalKeyValue(key.ToFieldList())
+		if err != nil {
+			return err
+		}
+
+		if sk == nil {
+			return NO_KEY
+		}
+
+		c := b.Cursor()
+		k, v := c.Seek(sk)
+
+		// Seek will return the next key if there is no match
+		// so make sure we check we got the right record
+
+		if bytes.Equal(sk, k) {
+                        updateIndex := func(index string) error {
+                            b := tx.Bucket(indices(index))
+                            if b == nil {
+                                    return NO_INDEX
+                            }
+
+                            info := t.indices[index]
+
+                            vk, vv, err := info.marshalKeyValue(value.ToFieldList())
+                            if err != nil {
+                                    return err
+                            }
+
+                            if vk != nil && !bytes.Equal(vk, sk) {
+                                 if err := c.Delete(); err != nil {
+                                    return err
+                                 }
+                            }
+
+                            if err := b.Put(vk, vv); err != nil {
+                                return err
+                            }
+                        }
+
+                        if err := updateIndex(index); err != nil {
+                            return err
+                        }
+
+			fields, err := info.unmarshalKeyValue(k, v)
+			if err != nil {
+				return err
+			}
+
+			for i, info := range t.indices {
+				if i == index {
+					// already done
+					continue
+				}
+
+				b := tx.Bucket(indices(i))
+				if b == nil {
+					continue
+				}
+
+                                if err := updateIndex(b, indices(i)); err != nil {
+                                    return err
+                                }
+			}
+		}
+
+		return nil
+	})
+
+	return err
+}
+*/
+
+//
 // Delete a record from the table, given the index and the key
 //
 func (t *Table) Delete(index string, key DataRecord) error {
@@ -450,6 +538,8 @@ func (t *Table) Delete(index string, key DataRecord) error {
 			if err != nil {
 				return err
 			}
+
+			key.FromFieldList(fields) // update key with full record
 
 			for i, info := range t.indices {
 				if i == index {
